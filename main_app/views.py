@@ -1,134 +1,141 @@
-from django.shortcuts import render, get_object_or_404
+from django.shortcuts import render, get_object_or_404, redirect
+from django.http import HttpResponse
+from django.views.generic import ListView, DetailView
+from django.views.generic.edit import CreateView, UpdateView, DeleteView
+from django.contrib.auth.views import LoginView
+from django.contrib.auth import login
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth.forms import UserCreationForm
+from django.contrib.auth.mixins import LoginRequiredMixin
+
 from .models import Cat, Toy
 from .forms import FeedingForm
-from django.views.generic.edit import CreateView, UpdateView, DeleteView
-from django.views.generic import ListView, DetailView # add these 
 
 
+# Home and About Views
+class Home(LoginView):
+    template_name = 'home.html'
+
+
+def about(request):
+    return render(request, 'about.html')
+
+
+# Cat Views (CRUD and Details)
+class CatCreate(LoginRequiredMixin, CreateView):
+    model = Cat
+    fields = ['name', 'breed', 'description', 'age']
+
+    def form_valid(self, form):
+        # Associate the logged-in user with the new cat entry
+        form.instance.user = self.request.user
+        return super().form_v
+
+
+class CatUpdate(LoginRequiredMixin, CreateView):
+    model = Cat
+    fields = ['breed', 'description', 'age']
+
+
+class CatDelete(LoginRequiredMixin, CreateView):
+    model = Cat
+    success_url = '/cats/'
+
+
+@login_required
+def cat_index(request):
+    # Show only the cats owned by the logged-in user
+    cats = Cat.objects.filter(user=request.user)
+    return render(request, 'cats/index.html', {'cats': cats})
+
+
+@login_required
+def cat_detail(request, cat_id):
+    # Display cat details and available toys not yet owned by the cat
+    cat = get_object_or_404(Cat, id=cat_id)
+    toys_cat_doesnt_have = Toy.objects.exclude(id__in=cat.toys.all().values_list('id'))
+    feeding_form = FeedingForm()
+    return render(request, 'cats/detail.html', {
+        'cat': cat,
+        'feeding_form': feeding_form,
+        'toys': toys_cat_doesnt_have,
+    })
+
+
+@login_required
+def add_feeding(request, cat_id):
+    # Add feeding data for a specific cat
+    form = FeedingForm(request.POST)
+    if form.is_valid():
+        new_feeding = form.save(commit=False)
+        new_feeding.cat_id = cat_id
+        new_feeding.save()
+    return redirect('cat-detail', cat_id=cat_id)
+
+
+# Toy Views (CRUD and List/Details)
 class ToyList(ListView):
     model = Toy
 
+
 class ToyDetail(DetailView):
     model = Toy
 
-from django.http import HttpResponse
-from django.shortcuts import render, redirect
 
-
-# Simulate some Cat data
-# class Cat:
-#     def __init__(self, name, breed, description, age):
-#         self.name = name
-#         self.breed = breed
-#         self.description = description
-#         self.age = age
-
-# # List of mock cats
-# cats = [
-#     Cat('Lolo', 'tabby', 'Kinda rude.', 3),
-#     Cat('Sachi', 'tortoiseshell', 'Looks like a turtle.', 0),
-#     Cat('Fancy', 'bombay', 'Happy fluff ball.', 4),
-#     Cat('Bonk', 'selkirk rex', 'Meows loudly.', 6)
-# ]
-
-# This expects a template in the format of 
-# templates/<app_name>/<model_name>_form.html
-# templates/main_app/cat_form.html
-
-class CatCreate(CreateView):
-    model = Cat
-    fields = '__all__'
-# Go to the models.py file for the cat model
-
-class CatUpdate(UpdateView):
-    model = Cat
-    # Let's disallow the renaming of a cat by excluding the name field!
-    fields = ['breed', 'description', 'age']
-
-class CatDelete(DeleteView):
-    model = Cat
-    success_url = '/cats/'
-    
 class ToyCreate(CreateView):
     model = Toy
     fields = ['name', 'color']
-   
-class ToyDetail(DetailView):
-    model = Toy
-    
+
+
 class ToyUpdate(UpdateView):
     model = Toy
     fields = ['name', 'color']
+
 
 class ToyDelete(DeleteView):
     model = Toy
     success_url = '/toys/'
 
-def cat_detail(request, cat_id):
-    cat = get_object_or_404(Cat, id=cat_id)
 
-    # Only get toys the cat does not already have
-    toys_cat_doesnt_have = Toy.objects.exclude(id__in=cat.toys.all().values_list('id'))
-
-    feeding_form = FeedingForm()
-    return render(request, 'cats/detail.html', {
-        'cat': cat,
-        'feeding_form': feeding_form,
-        'toys': toys_cat_doesnt_have,  # Pass available toys
-    })
-
-    
-def add_feeding(request, cat_id):
-    # create a ModelForm instance using the data in request.POST
-    form = FeedingForm(request.POST)
-    # validate the form
-    if form.is_valid():
-        # don't save the form to the db until it
-        # has the cat_id assigned
-        new_feeding = form.save(commit=False)
-        new_feeding.cat_id = cat_id
-        new_feeding.save()
-    return redirect('cat-detail', cat_id=cat_id)
-  
-# View function for cat index
-def cat_index(request):
-    cats = Cat.objects.all()  # look familiar?
-    return render(request, 'cats/index.html', {'cats': cats})
-
-def home(request):
-    return render(request, 'home.html')
-
-def about(request):
-    return render(request, 'about.html')
-
-    
+# Toy Association Functions
+@login_required
 def give_toy(request, cat_id, toy_id):
+    # Associate a toy with a specific cat if not already owned
     cat = get_object_or_404(Cat, id=cat_id)
     toy = get_object_or_404(Toy, id=toy_id)
-    
-    # Check if the toy is already added to avoid duplicates
     if not cat.toys.filter(id=toy.id).exists():
         cat.toys.add(toy)
-    
-    # Redirect back to the cat's detail page
     return redirect('cat-detail', cat_id=cat.id)
+
+
+@login_required
 def associate_toy(request, cat_id, toy_id):
-    # Note that you can pass a toy's id instead of the whole object
+    # Add a toy to a cat's collection
     Cat.objects.get(id=cat_id).toys.add(toy_id)
     return redirect('cat-detail', cat_id=cat_id)
 
+
+@login_required
 def remove_toy(request, cat_id, toy_id):
+    # Remove a toy from a cat's collection
     cat = get_object_or_404(Cat, id=cat_id)
     toy = get_object_or_404(Toy, id=toy_id)
-    
-    # Remove the toy from the cat's toys
     cat.toys.remove(toy)
-    
-    # Redirect back to the cat's detail page
     return redirect('cat-detail', cat_id=cat.id)
 
 
-
-
-
-
+# User Signup
+def signup(request):
+    # Handle user signup and login process
+    error_message = ''
+    if request.method == 'POST':
+        form = UserCreationForm(request.POST)
+        if form.is_valid():
+            user = form.save()
+            login(request, user)
+            return redirect('cat-index')
+        else:
+            error_message = 'Invalid sign up - try again'
+    form = UserCreationForm()
+    context = {'form': form, 'error_message': error_message}
+    return render(request, 'signup.html', context)
